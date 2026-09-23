@@ -1,0 +1,21 @@
+棋眼 Go Lens 0.5.0 — 自动校准与棋盘标点离线测试版
+
+分析：KataGo 1.15.3（Eigen CPU backend）
+源码：https://github.com/lightvector/KataGo/tree/v1.15.3
+本项目修改：Android Eigen 头文件路径及 endian.h 兼容处理。
+KataGo 为 MIT 许可，完整许可随安装包附于 KataGo-LICENSE.txt。
+Eigen 3.4.0 为 MPL-2.0，完整许可附于 Eigen-LICENSE.txt。
+Eigen 源码：https://gitlab.com/libeigen/eigen/-/tree/3.4.0
+
+模型：kata1-b6c96-s175395328-d26788732（较早的小型网络，优先响应速度，不代表最高棋力）
+来源：https://katagotraining.org/networks/
+许可：https://katagotraining.org/network_license/
+
+KataGo Neural Network License
+Copyright 2026 David J Wu ("lightvector").
+Permission is hereby granted, free of charge, to any person obtaining a copy of the neural net files or training weight files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+使用说明：在允许辅助的练习或复盘中使用。画面只在内存里处理，应用没有联网权限。只读画面，落子由用户完成。
+建议保持竖屏、使用标准木色棋盘和黑白棋子。自动识别棋盘位置及路数，手动校准仅作备用；首次仍需确认当前轮次。停一手需手动记录。中途接入无法恢复此前的劫争和重复局面历史。

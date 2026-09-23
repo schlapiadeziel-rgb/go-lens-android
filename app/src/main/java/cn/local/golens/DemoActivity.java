@@ -1,0 +1,19 @@
+package cn.local.golens;
+import android.app.*;import android.os.*;import android.graphics.*;import android.view.*;import android.widget.*;import org.json.*;
+import java.util.concurrent.*;
+
+/** Local practice board also makes the real recognition/engine pipeline testable. */
+public class DemoActivity extends Activity {
+    BoardState board;LocalEngine engine;ExecutorService worker=Executors.newSingleThreadExecutor();TextView status;PracticeView view;boolean busy=false;int revision;
+    public void onCreate(Bundle state){super.onCreate(state);board=new BoardState(getSharedPreferences("settings",0).getInt("size",19));engine=new LocalEngine(this);LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(18,18,18,18);root.setBackgroundColor(MainActivity.PAPER);setContentView(root);
+        TextView title=new TextView(this);title.setText("离线试棋 · 点击棋盘落子");title.setTextSize(22);title.setTextColor(MainActivity.INK);root.addView(title);view=new PracticeView();root.addView(view,new LinearLayout.LayoutParams(-1,0,1));
+        status=new TextView(this);status.setTextSize(16);status.setTextColor(MainActivity.INK);status.setText("轮到黑棋。点击分析，验证手机本地引擎。");root.addView(status);Button analyze=new Button(this);analyze.setText("分析下一步");analyze.setOnClickListener(v->analyze());root.addView(analyze);Button reset=new Button(this);reset.setText("清空棋盘");reset.setOnClickListener(v->{revision++;board=new BoardState(board.size);view.mark=-1;view.invalidate();status.setText("已清空，轮到黑棋");});root.addView(reset);
+    }
+    void analyze(){if(busy)return;busy=true;int version=revision;status.setText("本地分析中，首次加载稍慢…");try{JSONObject q=board.query("demo-"+version,7.5,64,1.2);long begin=System.currentTimeMillis();worker.execute(()->{try{JSONObject r=engine.analyze(q);JSONArray moves=r.getJSONArray("moveInfos");String move=moves.getJSONObject(0).getString("move");runOnUiThread(()->{busy=false;if(version!=revision)return;view.mark=board.index(move);view.invalidate();status.setText("建议 "+move+"  ·  "+(System.currentTimeMillis()-begin)+" 毫秒\n"+(board.next==1?"黑棋":"白棋")+"行棋 · 完全本地分析");});}catch(Exception e){runOnUiThread(()->{busy=false;status.setText("分析失败："+e.getMessage());});}});}catch(Exception e){busy=false;status.setText(e.getMessage());}}
+    class PracticeView extends View{Paint p=new Paint(3);int mark=-1;float left,top,step;
+        PracticeView(){super(DemoActivity.this);}
+        protected void onDraw(Canvas c){float edge=Math.min(getWidth()-36,getHeight()-36);left=(getWidth()-edge)/2;top=(getHeight()-edge)/2;step=edge/(board.size-1);p.setColor(Color.rgb(204,166,103));c.drawRect(left-14,top-14,left+edge+14,top+edge+14,p);p.setColor(Color.rgb(61,49,30));p.setStrokeWidth(1.4f);for(int i=0;i<board.size;i++){c.drawLine(left+i*step,top,left+i*step,top+edge,p);c.drawLine(left,top+i*step,left+edge,top+i*step,p);}for(int i=0;i<board.cells.length;i++)if(board.cells[i]!=0){p.setColor(board.cells[i]==1?Color.rgb(25,25,25):Color.rgb(248,247,242));c.drawCircle(left+i%board.size*step,top+i/board.size*step,step*.44f,p);}if(mark>=0){p.setColor(Color.rgb(5,137,109));p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(4);c.drawCircle(left+mark%board.size*step,top+mark/board.size*step,step*.38f,p);p.setStyle(Paint.Style.FILL);}}
+        public boolean onTouchEvent(android.view.MotionEvent e){if(e.getAction()==1){int x=Math.round((e.getX()-left)/step),y=Math.round((e.getY()-top)/step);if(x>=0&&x<board.size&&y>=0&&y<board.size){int[] next=BoardState.play(board.cells,y*board.size+x,board.next,board.size);if(next!=null&&board.accept(next)){revision++;mark=-1;invalidate();status.setText("轮到"+(board.next==1?"黑棋":"白棋"));}}}return true;}
+    }
+    protected void onDestroy(){revision++;engine.close();worker.shutdownNow();super.onDestroy();}
+}

@@ -1,0 +1,8 @@
+.gradle/
+**/build/
+native-build/
+local.properties
+*.log
+vendor/*.zip
+/screen-*.png
+*.rgba
