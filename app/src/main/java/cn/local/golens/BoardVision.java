@@ -8,6 +8,23 @@ public final class BoardVision {
     static int red(int c){return (c>>16)&255;}static int green(int c){return (c>>8)&255;}static int blue(int c){return c&255;}
     static float luma(int c){return .299f*red(c)+.587f*green(c)+.114f*blue(c);}
     static int pixel(Pixels b,float x,float y){return b.get(Math.max(0,Math.min(b.width()-1,Math.round(x))),Math.max(0,Math.min(b.height()-1,Math.round(y))));}
+    /** Independent safety check for a proposed move. Samples inside the marker ring, away from grid lines. */
+    public static boolean visuallyOccupied(Pixels image,float left,float top,float right,float bottom,int n,int at){
+        if(n<2||at<0||at>=n*n)return true;
+        float dx=(right-left)/(n-1),dy=(bottom-top)/(n-1),cx=left+at%n*dx,cy=top+at/n*dy;
+        float[] light=new float[8],chroma=new float[8];int k=0;
+        for(int sy:new int[]{-1,1})for(int sx:new int[]{-1,1})for(float radius:new float[]{.20f,.28f}){
+            int color=pixel(image,cx+sx*dx*radius*.7071f,cy+sy*dy*radius*.7071f);
+            light[k]=luma(color);chroma[k]=Math.max(red(color),Math.max(green(color),blue(color)))-Math.min(red(color),Math.min(green(color),blue(color)));k++;
+        }
+        Arrays.sort(light);Arrays.sort(chroma);float middleLight=(light[3]+light[4])/2,middleChroma=(chroma[3]+chroma[4])/2;
+        return middleChroma<55&&(middleLight<125||middleLight>155);
+    }
+    public static int firstMissedStone(Pixels image,float left,float top,float right,float bottom,int n,int[] cells){
+        if(cells==null||cells.length!=n*n)return -1;
+        for(int at=0;at<cells.length;at++)if(cells[at]==0&&visuallyOccupied(image,left,top,right,bottom,n,at))return at;
+        return -1;
+    }
     public static Result read(Bitmap image,RectF rect,int n){
         return read(new Pixels(){public int width(){return image.getWidth();}public int height(){return image.getHeight();}public int get(int x,int y){return image.getPixel(x,y);}},rect.left,rect.top,rect.right,rect.bottom,n);
     }
@@ -21,7 +38,7 @@ public final class BoardVision {
             float cx=left+x*dx,cy=top+y*dy;
             float[] samples=new float[12];float sat=0;
             for(int k=0;k<12;k++){double angle=(35+(k%3)*10+(k/3)*90)*Math.PI/180;int p=pixel(image,cx+(float)Math.cos(angle)*dx*.30f,cy+(float)Math.sin(angle)*dy*.30f);samples[k]=luma(p);sat+=Math.max(red(p),Math.max(green(p),blue(p)))-Math.min(red(p),Math.min(green(p),blue(p)));}
-            Arrays.sort(samples);float m=(samples[5]+samples[6])/2;float spread=samples[9]-samples[2];sat/=12;
+            Arrays.sort(samples);float m=(samples[5]+samples[6])/2;float spread=samples[8]-samples[3];sat/=12;
             if(m<Math.min(110,baseline-40)&&spread<90)board[y*n+x]=1;
             else if(m>Math.max(165,baseline+10)&&sat<48&&spread<65)board[y*n+x]=2;
             else {empty++;float center=255;int radius=Math.max(2,Math.round(Math.min(dx,dy)*.10f));for(int yy=-radius;yy<=radius;yy++)for(int xx=-radius;xx<=radius;xx++)center=Math.min(center,luma(pixel(image,cx+xx,cy+yy)));if(center<m-22)grid++;if(Math.abs(m-baseline)>28)uncertain++;}

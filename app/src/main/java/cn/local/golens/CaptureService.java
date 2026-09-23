@@ -10,7 +10,7 @@ public class CaptureService extends Service {
     private HandlerThread captureThread;private Handler captureHandler;private MediaProjection projection;private VirtualDisplay display;private ImageReader reader;private WindowManager windows;
     private LinearLayout panel;private TextView label,title;private Button turnButton,pauseButton,compact;private View modal;private WindowManager.LayoutParams panelParams,compactParams;private boolean panelWasVisible;
     private Bitmap latest;private RectF boardRect;private BoardState board;private int[] candidate,observed;private int stable,revision,size,width,height,dpi,initialSide,speed;private double komi;
-    private boolean paused,calibrating,previewing,busy,closed,desynced,pendingConfirmation;private volatile boolean frameQueued;private long lastFrame,lastValid;private int appliedRevision=-1;private JSONArray recommendations=new JSONArray();private LocalEngine engine;
+    private boolean paused,calibrating,previewing,busy,closed,desynced,pendingConfirmation;private volatile boolean frameQueued;private long lastFrame,lastValid;private int appliedRevision=-1,unsafeAt=-1,unsafeClearFrames;private JSONArray recommendations=new JSONArray();private LocalEngine engine;
     private long lastLocate;private int locateVotes,badFrames;private BoardLocator.Found locating;
     private MoveMarkers markers;
     private final Runnable collapsePanel=()->{if(panel!=null&&compact!=null&&panel.getVisibility()==View.VISIBLE&&!calibrating&&!previewing){panel.setVisibility(View.GONE);compact.setVisibility(View.VISIBLE);}};
@@ -64,6 +64,16 @@ public class CaptureService extends Service {
     private void message(String s){if(label!=null)label.setText(s);if(compact!=null){compact.setText(appliedRevision==revision?"①":"棋");compact.setContentDescription("棋眼，"+s);}if(markers!=null)markers.invalidate();}
     private void invalidateAdvice(){revision++;appliedRevision=-1;recommendations=new JSONArray();if(markers!=null)markers.invalidate();}
     private BoardVision.Pixels screenPixels(){Bitmap frame=latest;return new BoardVision.Pixels(){public int width(){return frame.getWidth();}public int height(){return frame.getHeight();}public int get(int x,int y){return frame.getPixel(x,y);}};}
+    private int adviceConflict(JSONArray choices,BoardVision.Pixels pixels){
+        if(choices==null||boardRect==null)return -1;
+        for(int i=0;i<Math.min(3,choices.length());i++){
+            JSONObject choice=choices.optJSONObject(i);if(choice==null)continue;
+            int at=board.index(choice.optString("move"));
+            if(at>=0&&(board.cells[at]!=0||BoardVision.visuallyOccupied(pixels,boardRect.left,boardRect.top,boardRect.right,boardRect.bottom,size,at)))return at;
+        }
+        return -1;
+    }
+    private void blockUnsafeAdvice(int at){unsafeAt=at;unsafeClearFrames=0;invalidateAdvice();message("建议点疑似已有棋子，已撤下标点；等待画面重新确认…");}
     private void processFrame(){
         if(markers!=null)markers.invalidate();
         if(paused||calibrating||previewing||latest==null)return;
@@ -76,10 +86,16 @@ public class CaptureService extends Service {
         if(pendingConfirmation){pendingConfirmation=false;candidate=null;stable=0;}
         BoardVision.Result result=BoardVision.read(latest,boardRect,size);
         if(result.confidence<.97){invalidateAdvice();stable=0;badFrames++;message("正在重新定位棋盘，请保持画面清晰");if(badFrames>=2)autoLocate();return;}
+        if(BoardVision.firstMissedStone(pixels,boardRect.left,boardRect.top,boardRect.right,boardRect.bottom,size,result.cells)>=0){invalidateAdvice();stable=0;badFrames++;message("发现疑似漏认棋子，暂停建议并重新定位…");if(badFrames>=2)autoLocate();return;}
         badFrames=0;lastValid=SystemClock.elapsedRealtime();observed=result.cells;
         if(panel.getVisibility()==View.VISIBLE&&!Arrays.equals(board.cells,observed)){ui.removeCallbacks(collapsePanel);panel.setVisibility(View.GONE);compact.setVisibility(View.VISIBLE);candidate=null;stable=0;invalidateAdvice();message("棋盘变化，面板已收起，等待落子确认…");return;}
-        if(!Arrays.equals(candidate,observed)){candidate=observed.clone();stable=1;invalidateAdvice();message("棋盘变化，确认落子中…");return;}stable++;
+        if(!Arrays.equals(candidate,observed)){candidate=observed.clone();stable=1;unsafeAt=-1;unsafeClearFrames=0;invalidateAdvice();message("棋盘变化，确认落子中…");return;}stable++;
         if(stable<2)return;
+        if(unsafeAt>=0){
+            if(BoardVision.visuallyOccupied(pixels,boardRect.left,boardRect.top,boardRect.right,boardRect.bottom,size,unsafeAt)){unsafeClearFrames=0;message("建议点疑似已有棋子，已暂停标点；等待棋盘变化…");return;}
+            if(++unsafeClearFrames<3){message("正在复核建议点…");return;}
+            unsafeAt=-1;unsafeClearFrames=0;
+        }
         if(desynced){if(shownTurn!=0){board.reset(observed,shownTurn);desynced=false;invalidateAdvice();message("已根据计时框重新同步局面");}else if(recoverSkipped(observed)){desynced=false;invalidateAdvice();}else{message("局面未同步，点“校准”重新确认\n当前轮次可用“轮到黑/白”切换");return;}}
         if(board.initial==null)return;
         if(!Arrays.equals(board.cells,observed)){
@@ -93,6 +109,7 @@ public class CaptureService extends Service {
         if(shownTurn!=0&&board.next!=shownTurn){if(Arrays.equals(board.cells,observed)&&board.moves.size()>0)board.pass();else board.reset(observed,shownTurn);invalidateAdvice();turnButton.setText(shownTurn==1?"轮到黑":"轮到白");}
         int playerColor=TencentUi.playerColor(pixels,boardRect.left,boardRect.top,boardRect.right);
         if(shownTurn!=0&&playerColor!=0&&shownTurn!=playerColor){if(appliedRevision!=-1)invalidateAdvice();message("等待对手落子…");return;}
+        if(appliedRevision==revision){int conflict=adviceConflict(recommendations,pixels);if(conflict>=0){blockUnsafeAdvice(conflict);return;}}
         if(!busy&&appliedRevision!=revision)analyze();
     }
     private boolean recoverTurn(int[] seen){
@@ -114,19 +131,19 @@ public class CaptureService extends Service {
         boolean first=boardRect==null;boolean keep=!first&&size==found.size&&(Arrays.equals(board.cells,seen)||board.accept(seen)||recoverSkipped(seen));
         boolean empty=true;for(int stone:seen)if(stone!=0){empty=false;break;}
         int priorSide=board.next;int shownTurn=TencentUi.turn(pixels,found.left,found.top,found.right);size=found.size;if(!keep){board=new BoardState(size);board.reset(seen,shownTurn!=0?shownTurn:(empty?1:(first?inferredSide(seen):priorSide)));}
-        boardRect=new RectF(found.left,found.top,found.right,found.bottom);candidate=seen.clone();observed=seen.clone();stable=0;badFrames=0;desynced=!first&&!keep&&!empty;revision++;appliedRevision=-1;recommendations=new JSONArray();lastValid=now;locateVotes=0;
+        boardRect=new RectF(found.left,found.top,found.right,found.bottom);candidate=seen.clone();observed=seen.clone();stable=0;badFrames=0;desynced=!first&&!keep&&!empty;unsafeAt=-1;unsafeClearFrames=0;revision++;appliedRevision=-1;recommendations=new JSONArray();lastValid=now;locateVotes=0;
         turnButton.setText(board.next==1?"轮到黑":"轮到白");message(desynced?"已重新定位，但落子历史不连续\n请确认当前轮次后继续":"已自动校准 "+size+" 路棋盘\n"+(board.next==1?"黑棋":"白棋")+"行棋，准备分析");
     }
     private void analyze(){
         final int epoch=revision;final long start=SystemClock.elapsedRealtime();busy=true;message((board.next==1?"黑棋":"白棋")+"本地分析中…");
         try{JSONObject query=board.query("screen-"+epoch+"-"+start,komi,new int[]{64,200,600}[speed],new double[]{1.2,3,8}[speed]);
-            analysis.execute(()->{try{JSONObject answer=engine.analyze(query);ui.post(()->{busy=false;if(closed||epoch!=revision||paused||calibrating||previewing||desynced||SystemClock.elapsedRealtime()-lastValid>2500)return;recommendations=answer.optJSONArray("moveInfos");if(recommendations==null||recommendations.length()==0){message("此局面没有可用建议");return;}appliedRevision=revision;try{String move=recommendations.getJSONObject(0).getString("move");int index=board.index(move);String where=index>=0?"左起 "+(index%size+1)+" 列 · 上起 "+(index/size+1)+" 行":"建议停一手";String alternate="";for(int i=1;i<Math.min(3,recommendations.length());i++)alternate+="  "+recommendations.getJSONObject(i).getString("move");message((board.next==1?"黑":"白")+"棋建议 "+move+" · "+String.format(java.util.Locale.ROOT,"%.1f",(SystemClock.elapsedRealtime()-start)/1000.0)+"秒\n"+where+(alternate.isEmpty()?"":"\n备选"+alternate));}catch(Exception e){message("建议解析失败，请重试");}});}catch(Exception e){ui.post(()->{busy=false;if(!closed&&epoch==revision){paused=true;pauseButton.setText("继续");message("分析失败："+e.getMessage());}});}});
+            analysis.execute(()->{try{JSONObject answer=engine.analyze(query);ui.post(()->{busy=false;if(closed||epoch!=revision||paused||calibrating||previewing||desynced||SystemClock.elapsedRealtime()-lastValid>2500)return;JSONArray choices=answer.optJSONArray("moveInfos");if(choices==null||choices.length()==0){message("此局面没有可用建议");return;}int conflict=adviceConflict(choices,screenPixels());if(conflict>=0){blockUnsafeAdvice(conflict);return;}recommendations=choices;appliedRevision=revision;try{String move=recommendations.getJSONObject(0).getString("move");int index=board.index(move);String where=index>=0?"左起 "+(index%size+1)+" 列 · 上起 "+(index/size+1)+" 行":"建议停一手";String alternate="";for(int i=1;i<Math.min(3,recommendations.length());i++)alternate+="  "+recommendations.getJSONObject(i).getString("move");message((board.next==1?"黑":"白")+"棋建议 "+move+" · "+String.format(java.util.Locale.ROOT,"%.1f",(SystemClock.elapsedRealtime()-start)/1000.0)+"秒\n"+where+(alternate.isEmpty()?"":"\n备选"+alternate));}catch(Exception e){message("建议解析失败，请重试");}});}catch(Exception e){ui.post(()->{busy=false;if(!closed&&epoch==revision){paused=true;pauseButton.setText("继续");message("分析失败："+e.getMessage());}});}});
         }catch(Exception e){busy=false;message("无法分析："+e.getMessage());}
     }
-    private void switchTurn(){revision++;appliedRevision=-1;recommendations=new JSONArray();initialSide=3-(boardRect==null?initialSide:board.next);if(boardRect!=null)board.reset(board.cells,initialSide);desynced=false;turnButton.setText(initialSide==1?"轮到黑":"轮到白");message("已切换轮次，历史已重置，请确认棋盘");stable=0;}
-    private void pass(){if(boardRect==null||desynced){message("请先校准棋盘");return;}board.pass();revision++;appliedRevision=-1;recommendations=new JSONArray();turnButton.setText(board.next==1?"轮到黑":"轮到白");message("已记录停一手，等待分析");}
+    private void switchTurn(){revision++;appliedRevision=-1;recommendations=new JSONArray();unsafeAt=-1;unsafeClearFrames=0;initialSide=3-(boardRect==null?initialSide:board.next);if(boardRect!=null)board.reset(board.cells,initialSide);desynced=false;turnButton.setText(initialSide==1?"轮到黑":"轮到白");message("已切换轮次，历史已重置，请确认棋盘");stable=0;}
+    private void pass(){if(boardRect==null||desynced){message("请先校准棋盘");return;}board.pass();revision++;appliedRevision=-1;recommendations=new JSONArray();unsafeAt=-1;unsafeClearFrames=0;turnButton.setText(board.next==1?"轮到黑":"轮到白");message("已记录停一手，等待分析");}
     private void calibrate(){if(latest==null){message("等待屏幕画面，请稍后再试");return;}if(calibrating||previewing)return;calibrating=true;revision++;appliedRevision=-1;recommendations=new JSONArray();if(markers!=null)markers.invalidate();panelWasVisible=panel.getVisibility()==View.VISIBLE;panel.setVisibility(View.GONE);compact.setVisibility(View.GONE);CalibrationView view=new CalibrationView();modal=view;windows.addView(view,params(-1,-1,true));}
-    private void finishCalibration(RectF rect,int[] cells){boardRect=new RectF(rect);board.reset(cells,initialSide);observed=cells.clone();candidate=cells.clone();stable=0;desynced=false;lastValid=SystemClock.elapsedRealtime();turnButton.setText(initialSide==1?"轮到黑":"轮到白");closeModal();message("已校准，等待稳定画面…");}
+    private void finishCalibration(RectF rect,int[] cells){boardRect=new RectF(rect);board.reset(cells,initialSide);observed=cells.clone();candidate=cells.clone();stable=0;desynced=false;unsafeAt=-1;unsafeClearFrames=0;lastValid=SystemClock.elapsedRealtime();turnButton.setText(initialSide==1?"轮到黑":"轮到白");closeModal();message("已校准，等待稳定画面…");}
     private void closeModal(){if(modal!=null){windows.removeView(modal);modal=null;}calibrating=false;previewing=false;panel.setVisibility(panelWasVisible?View.VISIBLE:View.GONE);compact.setVisibility(panelWasVisible?View.GONE:View.VISIBLE);stable=0;candidate=null;lastValid=0;}
     private void preview(){if(boardRect==null){message("请先校准棋盘");return;}previewing=true;revision++;appliedRevision=-1;if(markers!=null)markers.invalidate();panelWasVisible=panel.getVisibility()==View.VISIBLE;panel.setVisibility(View.GONE);compact.setVisibility(View.GONE);modal=new PreviewView();windows.addView(modal,params(-1,-1,true));}
     /** Ring samples stay outside the stone classifier's inner sampling region. */
@@ -138,6 +155,7 @@ public class CaptureService extends Service {
             int[] origin=new int[2];getLocationOnScreen(origin);float dx=boardRect.width()/(size-1),dy=boardRect.height()/(size-1),step=Math.min(dx,dy);
             for(int i=0;i<Math.min(3,recommendations.length());i++){
                 JSONObject move=recommendations.optJSONObject(i);if(move==null)continue;int at=board.index(move.optString("move"));if(at<0||at>=board.cells.length||board.cells[at]!=0)continue;
+                if(latest==null||BoardVision.visuallyOccupied(screenPixels(),boardRect.left,boardRect.top,boardRect.right,boardRect.bottom,size,at))continue;
                 float x=boardRect.left+(at%size)*dx-origin[0],y=boardRect.top+(at/size)*dy-origin[1];
                 p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(2,step*.07f));p.setColor(i==0?Color.rgb(0,220,105):Color.rgb(255,133,0));canvas.drawCircle(x,y,step*.44f,p);
                 p.setStyle(Paint.Style.FILL);p.setTextAlign(Paint.Align.CENTER);p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextSize(step*.36f);canvas.drawText(Integer.toString(i+1),x,y-(p.ascent()+p.descent())/2,p);
