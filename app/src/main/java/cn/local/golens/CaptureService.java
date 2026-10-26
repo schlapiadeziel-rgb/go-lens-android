@@ -23,7 +23,7 @@ public class CaptureService extends Service {
         Notification notification=new Notification.Builder(this,"capture").setSmallIcon(cn.local.golens.R.drawable.ic_go).setContentTitle("棋眼正在本机识别棋盘").setContentText("屏幕不保存、不上传 · 点停止即可结束").addAction(new Notification.Action.Builder(null,"停止",stop).build()).setOngoing(true).build();
         startForeground(11,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         try{
-            SharedPreferences p=getSharedPreferences("settings",0);size=p.getInt("size",19);initialSide=p.getInt("side",1);speed=p.getInt("speed",0);komi=Double.parseDouble(p.getString("komi","7.5"));board=new BoardState(size);engine=new LocalEngine(this);
+            SharedPreferences p=getSharedPreferences("settings",0);size=p.getInt("size",19);initialSide=p.getInt("side",1);speed=p.getInt("speed",0);komi=Double.parseDouble(p.getString("komi","7.5"));board=new BoardState(size);engine=new LocalEngine(this,speed);
             windows=getSystemService(WindowManager.class);DisplayMetrics metrics=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(metrics);width=metrics.widthPixels;height=metrics.heightPixels;dpi=metrics.densityDpi;
             captureThread=new HandlerThread("screen-frames");captureThread.start();captureHandler=new Handler(captureThread.getLooper());
             Intent data=intent.getParcelableExtra("data");projection=getSystemService(MediaProjectionManager.class).getMediaProjection(intent.getIntExtra("code",0),data);

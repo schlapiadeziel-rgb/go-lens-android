@@ -26,7 +26,7 @@ public class MainActivity extends Activity {
         android.content.SharedPreferences prefs=getSharedPreferences("settings",0);
         size=choice(card,"棋盘大小（屏幕模式自动识别）",new String[]{"19 路","13 路","9 路"},prefs.getInt("sizeIndex",0));
         side=choice(card,"开始识别时，轮到谁下？",new String[]{"黑棋","白棋"},prefs.getInt("side",1)-1);
-        speed=choice(card,"分析时间",new String[]{"快速 · 约 1 秒","均衡 · 约 3 秒","深入 · 约 8 秒"},prefs.getInt("speed",0));
+        speed=choice(card,"分析时间",new String[]{"快速 · b10 模型 · 约 1 秒","均衡 · b15 模型 · 约 3 秒","深入 · b15 模型 · 约 8 秒"},prefs.getInt("speed",0));
         card.addView(text("贴目（中国规则）",14));komi=new EditText(this);komi.setSingleLine(true);komi.setInputType(8194);komi.setText(prefs.getString("komi","7.5"));card.addView(komi);
         root.addView(button("开始屏幕辅助",this::begin));root.addView(button("先试试离线分析",()->{if(save())startActivity(new Intent(this,DemoActivity.class));}));
         root.addView(button("停止辅助",()->{stopService(new Intent(this,CaptureService.class));status.setText("已停止屏幕读取和分析");}));

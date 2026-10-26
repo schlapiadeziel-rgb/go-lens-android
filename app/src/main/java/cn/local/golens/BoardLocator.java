@@ -34,12 +34,14 @@ public final class BoardLocator {
         int radius=Math.max(3,len/150);for(int i=radius;i<len-radius;i++)sharp[i]=Math.max(0,raw[i]-(raw[i-radius]+raw[i+radius])*.5f);return sharp;
     }
     private static Axis fit(float[] p,int span,int n){
-        float max=0;for(float v:p)max=Math.max(max,v);if(max<8)return null;float threshold=Math.max(6,max*.16f);double best=-1;float bestStart=0,bestStep=0;
+        float max=0;for(float v:p)max=Math.max(max,v);if(max<8)return null;
+        // Dense stones hide many grid lines; fit from the visible subset, then verify the whole board image.
+        float threshold=Math.max(5,max*.10f);double best=-1;float bestStart=0,bestStep=0;
         float low=span/(n+1.5f),high=span/(n-1f);int margin=Math.max(4,span/8);
         for(float step=low;step<=high;step+=.25f){if(step<8)continue;for(int start=2;start<=margin;start++){
             if(start+(n-1)*step>=span-1)continue;double sum=0;int hits=0;
             for(int k=0;k<n;k++){int center=Math.round(start+k*step);float peak=0;for(int delta=-2;delta<=2;delta++){int at=center+delta;if(at>=0&&at<p.length)peak=Math.max(peak,p[at]);}sum+=Math.min(peak,max*.90);if(peak>=threshold)hits++;}
-            if(hits<n*.88)continue;double score=sum/n;if(score>best){best=score;bestStart=start;bestStep=step;}
+            if(hits<n*.65)continue;double score=sum/n;if(score>best){best=score;bestStart=start;bestStep=step;}
         }}
         if(best<8)return null;
         // Regress the actual peak coordinates to remove the fit tolerance's endpoint bias.

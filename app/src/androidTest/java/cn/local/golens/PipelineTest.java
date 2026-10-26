@@ -1,7 +1,8 @@
 package cn.local.golens;
-import android.test.InstrumentationTestCase;import android.graphics.*;import org.json.*;import java.util.*;
+import android.test.InstrumentationTestCase;import android.graphics.*;import android.app.Activity;import android.content.Intent;import org.json.*;import java.util.*;
 
 public class PipelineTest extends InstrumentationTestCase {
+    private Activity foreground(){Intent intent=new Intent(getInstrumentation().getTargetContext(),MainActivity.class);intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);return getInstrumentation().startActivitySync(intent);}
     public void testCaptureAndIllegalTransitions(){
         BoardState b=new BoardState(9);int[] initial=new int[81];initial[10]=2;initial[1]=1;initial[9]=1;initial[11]=1;b.reset(initial,1);
         int[] capture=BoardState.play(initial,19,1,9);assertNotNull(capture);assertEquals(0,capture[10]);assertTrue(b.accept(capture));assertEquals(2,b.next);
@@ -20,6 +21,17 @@ public class PipelineTest extends InstrumentationTestCase {
     }
     public void testVisionRoundTripAndOcclusion(){for(int n:new int[]{9,13,19}){int[] cells=new int[n*n];cells[0]=1;cells[n*n-1]=2;cells[n*3+3]=1;cells[n*5+4]=2;Bitmap img=boardImage(n,cells,true);BoardVision.Result r=BoardVision.read(img,new RectF(40,120,40+(n-1)*40,120+(n-1)*40),n);assertTrue("confidence "+r.confidence,r.confidence>=.97);assertTrue(Arrays.equals(cells,r.cells));img.eraseColor(Color.WHITE);assertEquals(0.0,BoardVision.read(img,new RectF(40,120,40+(n-1)*40,120+(n-1)*40),n).confidence);img.recycle();}}
     public void testRealOfflineEngine()throws Exception{
-        LocalEngine engine=new LocalEngine(getInstrumentation().getTargetContext());try{BoardState b=new BoardState(19);long start=System.currentTimeMillis();JSONObject r=engine.analyze(b.query("integration",7.5,32,1.2));JSONArray choices=r.getJSONArray("moveInfos");assertTrue(choices.length()>0);int idx=b.index(choices.getJSONObject(0).getString("move"));assertTrue(idx>=0&&idx<361);android.util.Log.i("GoLensTest","19x19 cold ms="+(System.currentTimeMillis()-start)+" best="+choices.getJSONObject(0).getString("move"));int[] seen=BoardState.play(b.cells,idx,1,19);assertTrue(b.accept(seen));start=System.currentTimeMillis();JSONObject second=engine.analyze(b.query("integration2",7.5,32,1.2));int next=b.index(second.getJSONArray("moveInfos").getJSONObject(0).getString("move"));assertTrue(next==-1||(next>=0&&b.cells[next]==0));android.util.Log.i("GoLensTest","19x19 warm ms="+(System.currentTimeMillis()-start));}finally{engine.close();}
+        Activity activity=foreground();LocalEngine engine=new LocalEngine(getInstrumentation().getTargetContext(),0);try{BoardState b=new BoardState(19);long start=System.currentTimeMillis();JSONObject r=engine.analyze(b.query("integration",7.5,32,1.2));JSONArray choices=r.getJSONArray("moveInfos");assertTrue(choices.length()>0);int idx=b.index(choices.getJSONObject(0).getString("move"));assertTrue(idx>=0&&idx<361);android.util.Log.i("GoLensTest","b10 19x19 cold ms="+(System.currentTimeMillis()-start)+" best="+choices.getJSONObject(0).getString("move"));int[] seen=BoardState.play(b.cells,idx,1,19);assertTrue(b.accept(seen));start=System.currentTimeMillis();JSONObject second=engine.analyze(b.query("integration2",7.5,32,1.2));int next=b.index(second.getJSONArray("moveInfos").getJSONObject(0).getString("move"));assertTrue(next==-1||(next>=0&&b.cells[next]==0));android.util.Log.i("GoLensTest","b10 19x19 warm ms="+(System.currentTimeMillis()-start));}finally{engine.close();getInstrumentation().runOnMainSync(activity::finish);}
+    }
+    public void testStrongOfflineEngine()throws Exception{
+        Activity activity=foreground();LocalEngine engine=new LocalEngine(getInstrumentation().getTargetContext(),1);
+        try{
+            BoardState board=new BoardState(13);long start=System.currentTimeMillis();
+            JSONObject answer=engine.analyze(board.query("strong-integration",7.5,64,3));
+            JSONArray choices=answer.getJSONArray("moveInfos");assertTrue(choices.length()>0);
+            int index=board.index(choices.getJSONObject(0).getString("move"));
+            assertTrue(index>=0&&index<169&&board.cells[index]==0);
+            android.util.Log.i("GoLensTest","b15 13x13 cold ms="+(System.currentTimeMillis()-start)+" visits="+answer.getJSONObject("rootInfo").getInt("visits"));
+        }finally{engine.close();getInstrumentation().runOnMainSync(activity::finish);}
     }
 }

@@ -1,4 +1,4 @@
-棋眼 Go Lens 0.5.0 — 自动校准与棋盘标点离线测试版
+棋眼 Go Lens 0.8.3 — 自动校准与棋盘标点离线测试版
 
 分析：KataGo 1.15.3（Eigen CPU backend）
 源码：https://github.com/lightvector/KataGo/tree/v1.15.3
@@ -7,7 +7,9 @@ KataGo 为 MIT 许可，完整许可随安装包附于 KataGo-LICENSE.txt。
 Eigen 3.4.0 为 MPL-2.0，完整许可附于 Eigen-LICENSE.txt。
 Eigen 源码：https://gitlab.com/libeigen/eigen/-/tree/3.4.0
 
-模型：kata1-b6c96-s175395328-d26788732（较早的小型网络，优先响应速度，不代表最高棋力）
+快速模型：kata1-b10c128-s1141046784-d204142634
+均衡/深入模型：kata1-b15c192-s1672170752-d466197061
+两者都是较早的官方网络；强模型更耗时，建议不保证胜局。
 来源：https://katagotraining.org/networks/
 许可：https://katagotraining.org/network_license/
 

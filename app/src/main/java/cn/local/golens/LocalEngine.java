@@ -8,25 +8,30 @@ import java.util.concurrent.*;
 /** A single persistent, offline KataGo process. No shell and no network. */
 public final class LocalEngine implements AutoCloseable {
     private final Context context;
+    private final String modelName;
     private volatile Process process;
     private BufferedWriter input;
     private final BlockingQueue<String> output=new LinkedBlockingQueue<>(32);
     private volatile boolean closed;
     private volatile String diagnostic="";
-    public LocalEngine(Context c){context=c.getApplicationContext();}
+    public LocalEngine(Context c,int speed){
+        context=c.getApplicationContext();
+        modelName=speed==0?"model-b10c128.txt.gz":"model-b15c192.txt.gz";
+    }
     private void asset(String name)throws IOException{
         File f=new File(context.getFilesDir(),name);
         if(f.exists()&&f.length()>0)return;
         File tmp=new File(context.getFilesDir(),name+".tmp");
-        try(InputStream in=context.getAssets().open(name.equals("model.txt.gz")?"model.data":name);OutputStream out=new FileOutputStream(tmp)){byte[] buffer=new byte[16384];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);}
+        String bundled=name.equals("model-b10c128.txt.gz")?"model-fast.data":name.equals("model-b15c192.txt.gz")?"model-strong.data":name;
+        try(InputStream in=context.getAssets().open(bundled);OutputStream out=new FileOutputStream(tmp)){byte[] buffer=new byte[16384];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);}
         if(!tmp.renameTo(f))throw new IOException("无法准备本地模型");
     }
     private synchronized void start()throws IOException{
         if(closed)throw new IOException("分析已停止");
         if(process!=null&&process.isAlive())return;
-        asset("model.txt.gz");asset("analysis.cfg");output.clear();
+        asset(modelName);asset("analysis.cfg");output.clear();
         File dir=context.getFilesDir();
-        Process p=new ProcessBuilder(context.getApplicationInfo().nativeLibraryDir+"/libkatago.so","analysis","-model",new File(dir,"model.txt.gz").getPath(),"-config",new File(dir,"analysis.cfg").getPath()).directory(dir).start();
+        Process p=new ProcessBuilder(context.getApplicationInfo().nativeLibraryDir+"/libkatago.so","analysis","-model",new File(dir,modelName).getPath(),"-config",new File(dir,"analysis.cfg").getPath()).directory(dir).start();
         process=p;input=new BufferedWriter(new OutputStreamWriter(p.getOutputStream(),StandardCharsets.UTF_8));
         Thread stdout=new Thread(()->{try(BufferedReader r=new BufferedReader(new InputStreamReader(p.getInputStream(),StandardCharsets.UTF_8))){String s;while((s=r.readLine())!=null)output.offer(s);}catch(IOException ignored){}finally{output.offer("{\"error\":\"本地引擎已退出\"}");}},"katago-output");stdout.setDaemon(true);stdout.start();
         Thread stderr=new Thread(()->{try(BufferedReader r=new BufferedReader(new InputStreamReader(p.getErrorStream(),StandardCharsets.UTF_8))){String s;while((s=r.readLine())!=null){diagnostic=s;android.util.Log.i("GoLensEngine",s);}}catch(IOException ignored){}},"katago-log");stderr.setDaemon(true);stderr.start();
